@@ -15,7 +15,7 @@ class Node():
             self.is_leaf = leaf
             self.predicted_value = None
             self.leaf_impurity = None
-            self.samples_count = None
+            self.class_counts = None
 
 class DecisionTreeClassifier():
     def __init__(self, max_depth=7):
@@ -36,32 +36,65 @@ class DecisionTreeClassifier():
 
         full_indexes = np.arange(X.shape[0])
         self.root = Node(full_indexes)
-        self.root.impurity_before = self.calc_gini(y)
+        self.root.impurity_before = self.calc_gini_(y)
 
-        self.grow_tree(X, y, self.root, 0)
+        self.grow_tree_(X, y, self.root, 0)
+
+    def predict(self, X):
+        if len(X.shape) == 1:
+            X = X[None, :]
+        preds = np.fromiter((self.predict_one_(x) for x in X), dtype=float)
+        return preds
+
+    def predict_proba(self, X):
+        if len(X.shape) == 1:
+            X = X[None, :]
+        probs = np.vstack([self.predict_proba_one_(x) for x in X])
+        return probs
+
+    def find_leaf_(self, x):
+        c_node = self.root
+        while not c_node.is_leaf:
+            c_thresh = c_node.split_threshold
+            c_feature_index = c_node.feature_index
+            if x[c_feature_index] <= c_thresh:
+                c_node = c_node.left
+            else:
+                c_node = c_node.right
+        return c_node
+
+    def predict_proba_one_(self, x):
+        leaf = self.find_leaf_(x)
+        N = np.sum(leaf.class_counts)
+        probs = leaf.class_counts / N
+        return probs
+
+    def predict_one_(self, x):
+        leaf = self.find_leaf_(x)
+        return leaf.predicted_value
 
 
-    def grow_tree(self, X, y, root: Node, depth):
+    def grow_tree_(self, X, y, root: Node, depth):
         if depth >= self.max_depth or math.isclose(root.impurity_before, 0.0):
-            self.change_to_leaf(root, y)
+            self.change_to_leaf_(root, y)
             return
         
-        gain, feature_index, tresh = self.find_best_split(root, X, y)
+        gain, feature_index, tresh = self.find_best_split_(root, X, y)
 
         if gain > 1e-6:
             root.feature_index = feature_index
             root.split_threshold = tresh
-            self.create_children(feature_index, tresh, X, y, root, root.node_indxs)
+            self.create_children_(feature_index, tresh, X, y, root, root.node_indxs)
         else:
-            self.change_to_leaf(root, y)
+            self.change_to_leaf_(root, y)
             return
 
-        self.grow_tree(X, y, root.left, depth + 1)
-        self.grow_tree(X, y, root.right, depth + 1)
+        self.grow_tree_(X, y, root.left, depth + 1)
+        self.grow_tree_(X, y, root.right, depth + 1)
         
 
 
-    def make_split_one_feature(self, X, y):
+    def make_split_one_feature_(self, X, y):
         if self.n_classes is None:
             self.n_classes = np.max(y) + 1
         
@@ -111,7 +144,7 @@ class DecisionTreeClassifier():
         return best_thresh, best_imp, best_gain
 
 
-    def find_best_split(self, node: Node, X, y):
+    def find_best_split_(self, node: Node, X, y):
         
         cur_indxs = node.node_indxs
         cur_data = X[cur_indxs]
@@ -123,7 +156,7 @@ class DecisionTreeClassifier():
 
         for i in range(self.n_features):
             feature_values = cur_data[:, i]
-            tresh, imp, gain = self.make_split_one_feature(feature_values, cur_labels)
+            tresh, imp, gain = self.make_split_one_feature_(feature_values, cur_labels)
 
             if gain == -np.inf:
                 continue
@@ -136,43 +169,51 @@ class DecisionTreeClassifier():
         return best_gain, best_feature_index, best_tresh
 
 
-    def change_to_leaf(self, node: Node, y):
+    def change_to_leaf_(self, node: Node, y):
         node.is_leaf = True
-        node.samples_count = len(node.node_indxs)
+
+        class_counts = np.zeros(self.n_classes, dtype=int)
+        unique, counts = np.unique(y[node.node_indxs], return_counts=True)
+        for i, unique_v in enumerate(unique):
+            class_counts[unique_v] = counts[i]
+        node.class_counts = class_counts
 
         node_lables = y[node.node_indxs]
-        node.predicted_value = self.mode(node_lables)
+        node.predicted_value = self.mode_(node_lables)
         node.leaf_impurity = node.impurity_before
 
-    def create_children(self, feature_index, tresh, X, y, parent:Node, parent_indxs):
+    def create_children_(self, feature_index, tresh, X, y, parent:Node, parent_indxs):
         left_mask = X[parent_indxs][:, feature_index] <= tresh
 
         left_indxs = parent_indxs[left_mask]
         right_indxs = parent_indxs[~left_mask]
         
         left_node = Node(left_indxs)
-        left_node.impurity_before = self.calc_gini(y[left_indxs])
+        left_node.impurity_before = self.calc_gini_(y[left_indxs])
 
         right_node = Node(right_indxs)
-        right_node.impurity_before = self.calc_gini(y[right_indxs])
+        right_node.impurity_before = self.calc_gini_(y[right_indxs])
 
         parent.left = left_node
         parent.right = right_node
         
         
-    def calc_gini(self, y):
+    def calc_gini_(self, y):
         N = len(y)
         total = np.bincount(y, minlength=self.n_classes)
         return 1 - np.sum(total ** 2) / N ** 2
     
-    def mode(self, y):
+    def mode_(self, y):
         return np.bincount(y).argmax()
 
 
-if __name__ == "__main__":
-    X = np.random.randint(0, 50, size=(20, 4))
-    y = np.random.randint(0, 2, size=(20))
+# if __name__ == "__main__":
+#     X = np.random.randint(0, 50, size=(20))
+#     y = np.random.randint(0, 2, size=(20))
 
-    model = DecisionTreeClassifier(max_depth=2)
+#     model = DecisionTreeClassifier(max_depth=2)
 
-    model.fit(X, y)
+#     model.fit(X, y)
+
+#     probs = model.predict_proba(X)
+#     preds = model.predict(X)
