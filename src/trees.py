@@ -25,6 +25,9 @@ class DecisionTreeClassifier():
     def fit(self, X, y):
         X = np.asarray(X)
         y = np.asarray(y).ravel()
+
+        self.classes_ = np.unique(y)
+        y = self.encode_targets_(y)
         self.n_classes = np.max(y) + 1
         
         if len(X.shape) == 2:
@@ -33,7 +36,6 @@ class DecisionTreeClassifier():
             self.n_features = 1
             X = X[:, None]
 
-
         full_indexes = np.arange(X.shape[0])
         self.root = Node(full_indexes)
         self.root.impurity_before = self.calc_gini_(y)
@@ -41,16 +43,64 @@ class DecisionTreeClassifier():
         self.grow_tree_(X, y, self.root, 0)
 
     def predict(self, X):
-        if len(X.shape) == 1:
-            X = X[None, :]
-        preds = np.fromiter((self.predict_one_(x) for x in X), dtype=float)
-        return preds
+        X = np.asarray(X)
+
+        if X.ndim == 1:
+            if self.n_features == 1:
+                X = X[:, None]
+            elif X.shape[0] == self.n_features:
+                X = X[None, :]
+            else:
+                raise ValueError("X shape does not match n_features")
+
+        preds = np.fromiter((self.predict_one_(x) for x in X), dtype=int)
+        return self.decode_preds(preds)
 
     def predict_proba(self, X):
-        if len(X.shape) == 1:
-            X = X[None, :]
+        X = np.asarray(X)
+
+        if X.ndim == 1:
+            if self.n_features == 1:
+                X = X[:, None]
+            elif X.shape[0] == self.n_features:
+                X = X[None, :]
+            else:
+                raise ValueError("X shape does not match n_features")
+
         probs = np.vstack([self.predict_proba_one_(x) for x in X])
         return probs
+    
+    def encode_targets_(self, y):
+        y = np.asarray(y)
+        if y.ndim != 1:
+            raise ValueError("Ожидается одномерный массив меток (1D).")
+
+        self.label_to_id = {}
+        self.id_to_label = []
+
+        encoded = np.empty(y.shape[0], dtype=np.int64)
+        next_id = 0
+        for i, label in enumerate(y):
+            if label not in self.label_to_id:
+                self.label_to_id[label] = next_id
+                self.id_to_label.append(label)
+                next_id += 1
+            encoded[i] = self.label_to_id[label]
+
+        self._id_to_label_arr = np.array(self.id_to_label, dtype=object)
+
+        return encoded
+    
+    def decode_preds(self, y_encoded):
+        y_encoded = np.asarray(y_encoded)
+        if y_encoded.size > 0:
+            min_id = int(y_encoded.min())
+            max_id = int(y_encoded.max())
+            if min_id < 0 or max_id >= len(self._id_to_label_arr):
+                raise ValueError("Найдены кодированные метки вне допустимого диапазона.")
+
+        return self._id_to_label_arr[y_encoded]
+
 
     def find_leaf_(self, x):
         c_node = self.root
@@ -228,8 +278,16 @@ class DecisionTreeRegressor():
         self.grow_tree_(X, y, self.root, 0)
 
     def predict(self, X):
-        if len(X.shape) == 1:
-            X = X[None, :]
+        X = np.asarray(X)
+
+        if X.ndim == 1:
+            if self.n_features == 1:
+                X = X[:, None]
+            elif X.shape[0] == self.n_features:
+                X = X[None, :]
+            else:
+                raise ValueError("X shape does not match n_features")
+
         preds = np.fromiter((self.predict_one_(x) for x in X), dtype=float)
         return preds
 
@@ -365,14 +423,14 @@ class DecisionTreeRegressor():
         return mse
     
 
-# if __name__ == "__main__":
-#     X = np.random.uniform(0, 50, size=(20))
-#     y = np.random.uniform(0, 2, size=(20))
+if __name__ == "__main__":
+    X = np.random.uniform(0, 50, size=(20, 5))
+    y = np.random.randint(3, 5, size=(20))
 
-#     model = DecisionTreeRegressor(max_depth=2)
+    model = DecisionTreeClassifier(max_depth=2)
 
-#     model.fit(X, y)
+    model.fit(X, y)
 
-#     preds = model.predict(X)
+    preds = model.predict_proba(X)
 
-#     print('hi')
+    print('hi')
